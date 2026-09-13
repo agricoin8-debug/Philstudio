@@ -1,5 +1,10 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
+
+dotenv.config({ path: '/vercel/share/.env.project' });
+dotenv.config({ path: '.env.development.local' });
+dotenv.config();
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
@@ -27,6 +32,87 @@ function getGeminiClient(): GoogleGenAI {
   }
   return aiClient;
 }
+
+function getGroqKey(): string {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY environment variable is missing.');
+  return apiKey;
+}
+
+function getScrapeCreatorsKey(): string {
+  const apiKey = process.env.SCRAPECREATORS_API_KEY;
+  if (!apiKey) throw new Error('SCRAPECREATORS_API_KEY environment variable is missing.');
+  return apiKey;
+}
+
+const SCRAPE_CREATORS_BASE_URL = 'https://api.scrapecreators.com';
+const SCRAPE_PATH_PATTERN = /^\/[a-z0-9][a-z0-9/_-]*$/i;
+
+async function scrapeCreators(pathname: string, method: 'GET' | 'POST', body?: unknown) {
+  if (!SCRAPE_PATH_PATTERN.test(pathname) || pathname.includes('..')) {
+    throw new Error('Invalid Scrape Creators endpoint path.');
+  }
+
+  const response = await fetch(`${SCRAPE_CREATORS_BASE_URL}${pathname}`, {
+    method,
+    headers: {
+      'x-api-key': getScrapeCreatorsKey(),
+      Accept: 'application/json',
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(method === 'POST' ? { body: JSON.stringify(body ?? {}) } : {}),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  const text = await response.text();
+  let payload: unknown = text;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    // Preserve non-JSON upstream responses for diagnostics.
+  }
+  if (!response.ok) {
+    throw new Error(`Scrape Creators request failed (${response.status}).`);
+  }
+  return payload;
+}
+
+async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${getGroqKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'openai/gpt-oss-120b',
+      messages,
+      temperature: 0.7,
+      stream: true,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => 'Unknown Groq error');
+    throw new Error(`Groq request failed (${response.status}): ${detail.slice(0, 240)}`);
+  }
+  return response.body;
+}
+
+// Scrape Creators server-side proxy. API keys never leave the server.
+app.all('/api/scrapecreators', async (req, res) => {
+  try {
+    const endpoint = typeof req.query.endpoint === 'string' ? req.query.endpoint : '';
+    const method = req.method === 'POST' ? 'POST' : 'GET';
+    const result = await scrapeCreators(endpoint, method, method === 'POST' ? req.body : undefined);
+    res.json({ data: result });
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : 'Scrape Creators request failed.';
+    const status = message.includes('missing') ? 503 : message.includes('Invalid') ? 400 : 502;
+    res.status(status).json({ error: message });
+  }
+});
 
 // Health & Status Endpoint
 app.get('/api/health', (req, res) => {
@@ -438,11 +524,77 @@ CORE CAPABILITIES & DIRECTIVES:
     res.end();
   } catch (error: any) {
     console.error('Agent stream error:', error);
+
+    // Gemini model retirement/errors should not break the chat when Groq is configured.
+    try {
+      if (!process.env.GROQ_API_KEY) {
+        throw new Error('GROQ_API_KEY environment variable is missing.');
+      }
+        const groqSystemInstruction = [
+          'You are an autonomous AI agent. Answer clearly, accurately, and helpfully.',
+          'Be thorough when the request is complex, but do not claim to have performed actions or live research you did not perform.',
+          req.body.mode === 'fast' ? 'Prioritize a concise, direct response.' : '',
+          req.body.mode === 'thinking' || req.body.mode === 'ultra' ? 'Provide structured reasoning, tradeoffs, and a decisive recommendation.' : '',
+          req.body.enableWebSearch ? 'The web search provider is unavailable in this fallback; clearly label information that may need verification.' : '',
+          req.body.powerSettings?.customSystemPrompt || '',
+          Array.isArray(req.body.memories) && req.body.memories.length > 0
+            ? `Relevant memory:\n${req.body.memories.filter((memory: any) => memory.enabled !== false).map((memory: any) => `- ${memory.key}: ${memory.value}`).join('\n')}`
+            : '',
+          Array.isArray(req.body.skills) && req.body.skills.length > 0
+            ? `Enabled skills:\n${req.body.skills.filter((skill: any) => skill.enabled !== false).map((skill: any) => `- ${skill.name}: ${skill.description}`).join('\n')}`
+            : '',
+        ].filter(Boolean).join('\n\n');
+        const groqMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: groqSystemInstruction },
+          ...(Array.isArray(req.body.history) ? req.body.history.slice(-40).map((item: any) => ({
+            role: item.role === 'assistant' ? 'assistant' : 'user',
+            content: typeof item.content === 'string' ? item.content : '',
+          })) : []),
+          { role: 'user', content: String(req.body.message || '') },
+        ];
+        const groqBody = await streamGroq(groqMessages);
+        const reader = groqBody.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        sendEvent({
+          type: 'meta',
+          modelUsed: 'openai/gpt-oss-120b (Groq fallback)',
+          modeUsed: req.body.mode || 'auto',
+          thinkingLevel: 'OFF',
+          searchEnabled: false,
+          unrestricted: req.body.mode === 'ultra' || Boolean(req.body.powerSettings?.unrestrictedDepth),
+        });
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+            try {
+              const payload = JSON.parse(line.slice(6));
+              const text = payload.choices?.[0]?.delta?.content;
+              if (text) sendEvent({ type: 'chunk', text });
+            } catch {
+              // Ignore incomplete SSE frames; the next chunk completes them.
+            }
+          }
+        }
+
+        sendEvent({ type: 'done', latencyMs: Date.now(), groundingSources: [] });
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      } catch (fallbackError: any) {
+        console.error('Groq fallback error:', fallbackError);
+      }
+
     sendEvent({
       type: 'error',
       error: error.message || 'Error communicating with agent',
     });
-    res.write('data: [DONE]\n\n');
+    res.write('data: [DONE]\\n\\n');
     res.end();
   }
 });

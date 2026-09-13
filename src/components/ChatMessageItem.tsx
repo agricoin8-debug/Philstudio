@@ -103,7 +103,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, onOpe
     return (
       <div className="flex justify-end my-4">
         <div className="flex items-start gap-2.5 max-w-[85%] md:max-w-[70%]">
-          <div className="bg-stone-900 text-stone-50 rounded-2xl rounded-tr-sm px-4 py-3 shadow-xs">
+          <div className="bg-[#20221d] text-[#fffdf4] rounded-[1.25rem] rounded-tr-sm px-4 py-3.5 shadow-[4px_4px_0_rgba(32,34,29,0.12)]">
             <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
           </div>
           <div className="w-7 h-7 rounded-full bg-stone-200 text-stone-700 flex items-center justify-center shrink-0 mt-0.5">
@@ -126,7 +126,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, onOpe
         </div>
 
         {/* Message Card */}
-        <div className="flex-1 bg-white border border-stone-200 rounded-2xl rounded-tl-sm p-4 shadow-xs overflow-hidden">
+        <div className="flex-1 bg-[#fffdf4]/95 border border-black/10 rounded-[1.25rem] rounded-tl-sm p-4 sm:p-5 shadow-[0_10px_30px_rgba(76,67,28,0.08)] overflow-hidden">
           {/* Header badges: Model & Latency */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-stone-100 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">

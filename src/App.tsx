@@ -757,7 +757,7 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-stone-100 text-stone-900 font-sans">
+    <div className="app-shell flex flex-col min-h-screen text-stone-900 font-sans">
       {/* Top Header */}
       <Header
         currentMode={currentMode}
@@ -805,7 +805,7 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
       )}
 
       {/* Main Chat Area */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-2 overflow-y-auto">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-8 py-5 overflow-y-auto">
         {/* Chat Actions & Quick Export Toolbar */}
         {messages.length > 1 && (
           <div className="flex items-center justify-between py-1 mb-2 px-1 text-xs text-stone-500 border-b border-stone-200/60">
@@ -859,7 +859,7 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
             </p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-3">
             {messages.map((message) => (
               <ChatMessageItem
                 key={message.id}
