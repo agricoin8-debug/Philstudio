@@ -757,7 +757,7 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-stone-100 text-stone-900 font-sans">
+    <div className="app-shell flex flex-col min-h-screen text-stone-900 font-sans">
       {/* Top Header */}
       <Header
         currentMode={currentMode}
