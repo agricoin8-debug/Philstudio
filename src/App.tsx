@@ -13,6 +13,7 @@ import { ClawHubModal } from './components/ClawHubModal';
 import { SolanaAgentKitModal } from './components/SolanaAgentKitModal';
 import { LatencyTrendChart } from './components/LatencyTrendChart';
 import { SolanaPriceChart } from './components/SolanaPriceChart';
+import { DocumentGeneratorModal } from './components/DocumentGeneratorModal';
 import { 
   AgentMode, 
   ChatMessage, 
@@ -147,6 +148,8 @@ How can I assist your engineering or Web3 workflow right now?`,
   const [isGatewayModalOpen, setIsGatewayModalOpen] = useState(false);
   const [isClawHubOpen, setIsClawHubOpen] = useState(false);
   const [isSolanaModalOpen, setIsSolanaModalOpen] = useState(false);
+  const [isDocumentGeneratorOpen, setIsDocumentGeneratorOpen] = useState(false);
+  const [documentSource, setDocumentSource] = useState<ChatMessage | null>(null);
   const [showLatencyChart, setShowLatencyChart] = useState(true);
   const [showSolanaPriceChart, setShowSolanaPriceChart] = useState(true);
   const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
@@ -744,6 +747,11 @@ How can I assist your engineering or Web3 workflow right now?`,
     URL.revokeObjectURL(url);
   };
 
+  const openDocumentGenerator = (source?: ChatMessage | null) => {
+    setDocumentSource(source || [...messages].reverse().find((message) => message.role === 'assistant') || null);
+    setIsDocumentGeneratorOpen(true);
+  };
+
   const handleExecutePlanInChat = (goal: string, steps: TaskStep[]) => {
     const formattedPrompt = `Please autonomously execute this multi-step task plan:
 **Goal:** ${goal}
@@ -813,6 +821,14 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
               {messages.length} messages in conversation
             </span>
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => openDocumentGenerator()}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-900 transition-colors cursor-pointer text-[11px] font-semibold"
+                title="Create a document from the latest AI response"
+              >
+                <FileText className="w-3 h-3" />
+                <span>Create document</span>
+              </button>
               <button
                 onClick={handleExportMarkdown}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-stone-200 text-stone-600 transition-colors cursor-pointer text-[11px]"
@@ -885,6 +901,13 @@ For each step, conduct necessary reasoning, synthesize factual research, and pro
         isLoading={isLoading}
         currentMode={currentMode}
         onModeChange={setCurrentMode}
+      />
+
+      <DocumentGeneratorModal
+        isOpen={isDocumentGeneratorOpen}
+        onClose={() => setIsDocumentGeneratorOpen(false)}
+        initialTitle={documentSource ? `${documentSource.mode || 'AI'} deliverable` : ''}
+        initialContent={documentSource?.content || ''}
       />
 
       {/* Autonomous Task Planner Modal */}
