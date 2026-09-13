@@ -173,7 +173,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       handleSubmit();
     }
@@ -213,7 +213,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 
   return (
-    <div className="sticky bottom-0 z-20 bg-gradient-to-t from-stone-100 via-stone-100/95 to-transparent pt-3 pb-4 sm:pb-6 px-3 sm:px-6">
+    <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#f9f3d7] via-[#f9f3d7]/95 to-transparent pt-5 pb-5 sm:pb-7 px-3 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-2.5">
         {/* Hidden File Input for attachments */}
         <input

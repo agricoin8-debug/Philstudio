@@ -79,11 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
   ];
 
   return (
-    <header className="border-b border-stone-200 bg-white/95 backdrop-blur sticky top-0 z-30 px-4 py-3 sm:px-6">
+    <header className="border-b border-black/10 bg-[#fffdf4]/85 backdrop-blur-xl sticky top-0 z-30 px-4 py-3.5 sm:px-6">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Left: Identity */}
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-stone-900 text-white flex items-center justify-center shadow-sm">
+          <div className="w-10 h-10 rounded-2xl bg-[#20221d] text-[#f9df4f] flex items-center justify-center shadow-[4px_4px_0_#e9c928] rotate-[-3deg]">
             <Bot className="w-5 h-5" />
           </div>
           <div>
