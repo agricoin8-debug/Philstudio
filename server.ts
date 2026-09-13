@@ -28,6 +28,35 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+function getGroqKey(): string {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY environment variable is missing.');
+  return apiKey;
+}
+
+async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${getGroqKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages,
+      temperature: 0.7,
+      stream: true,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => 'Unknown Groq error');
+    throw new Error(`Groq request failed (${response.status}): ${detail.slice(0, 240)}`);
+  }
+  return response.body;
+}
+
 // Health & Status Endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -438,11 +467,62 @@ CORE CAPABILITIES & DIRECTIVES:
     res.end();
   } catch (error: any) {
     console.error('Agent stream error:', error);
+
+    // Gemini model retirement/errors should not break the chat when Groq is configured.
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const groqMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: 'You are an autonomous AI agent. Answer clearly, accurately, and helpfully.' },
+          ...(Array.isArray(req.body.history) ? req.body.history.slice(-40).map((item: any) => ({
+            role: item.role === 'assistant' ? 'assistant' : 'user',
+            content: typeof item.content === 'string' ? item.content : '',
+          })) : []),
+          { role: 'user', content: String(req.body.message || '') },
+        ];
+        const groqBody = await streamGroq(groqMessages);
+        const reader = groqBody.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        sendEvent({
+          type: 'meta',
+          modelUsed: 'llama-3.3-70b-versatile (Groq fallback)',
+          modeUsed: req.body.mode || 'auto',
+          thinkingLevel: 'OFF',
+          searchEnabled: false,
+          unrestricted: req.body.mode === 'ultra' || Boolean(req.body.powerSettings?.unrestrictedDepth),
+        });
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+            try {
+              const payload = JSON.parse(line.slice(6));
+              const text = payload.choices?.[0]?.delta?.content;
+              if (text) sendEvent({ type: 'chunk', text });
+            } catch {
+              // Ignore incomplete SSE frames; the next chunk completes them.
+            }
+          }
+        }
+
+        sendEvent({ type: 'done', latencyMs: Date.now(), groundingSources: [] });
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      } catch (fallbackError: any) {
+        console.error('Groq fallback error:', fallbackError);
+      }
+    }
+
     sendEvent({
       type: 'error',
       error: error.message || 'Error communicating with agent',
     });
-    res.write('data: [DONE]\n\n');
+    res.write('data: [DONE]\\n\\n');
     res.end();
   }
 });
