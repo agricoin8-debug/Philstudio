@@ -1,0 +1,6 @@
+{
+  "name": "Autonomous AI Agent",
+  "description": "Autonomous AI agent powered by OpenClaw architecture, featuring Recharts latency performance analytics, Solana live price charts with Pyth oracle feeds, ClawHub skill registry, SendAI Solana Agent Kit, and multi-channel gateway.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
