@@ -125,13 +125,13 @@ export default function App() {
 4. 🧠 **Long-Term Memory Vault**: Persistent cross-session factual memory storing project contexts, user preferences, and tech specs.
 5. 🌐 **Omni-Channel Gateway**: Unified bidirectional communication across Discord, Slack, Telegram, WhatsApp, and Webhook APIs.
 6. 🔥 **Max Power Mode (\`ultra\`)**: Uncapped reasoning depth and exhaustive production-grade solutions without placeholders.
-7. ⚡ **Ultra-Low Latency (\`fast\`)**: Near-instant responses powered by \`gemini-3.1-flash-lite\`.
+7. ⚡ **Ultra-Low Latency (\`fast\`)**: Near-instant responses powered by \`Groq openai/gpt-oss-120b\`.
 8. 🧠 **High Thinking (\`thinking\`)**: Pro Preview deep analytical reasoning with visible thought process.
 
 How can I assist your engineering or Web3 workflow right now?`,
         timestamp: Date.now(),
         mode: 'ultra',
-        modelUsed: 'gemini-3.1-pro-preview',
+        modelUsed: 'Groq openai/gpt-oss-120b',
         latencyMs: 1420,
       },
     ];
@@ -566,7 +566,7 @@ How can I assist your engineering or Web3 workflow right now?`,
       content: '',
       timestamp: Date.now(),
       mode,
-      modelUsed: mode === 'fast' ? 'gemini-3.1-flash-lite' : mode === 'thinking' ? 'gemini-3.1-pro-preview' : 'Auto Routing...',
+      modelUsed: mode === 'fast' ? 'Groq openai/gpt-oss-120b' : mode === 'thinking' ? 'Groq openai/gpt-oss-120b' : 'Auto Routing...',
     };
 
     setMessages((prev) => [...prev, userMessage, assistantPlaceholder]);

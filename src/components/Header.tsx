@@ -72,8 +72,8 @@ export const Header: React.FC<HeaderProps> = ({
   const modes: { id: AgentMode; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }[] = [
     { id: 'auto', label: 'Auto Route', icon: Sparkles, desc: 'Dynamic smart router' },
     { id: 'ultra', label: 'Max Power', icon: Flame, desc: 'Unrestricted reasoning + live search + full depth' },
-    { id: 'thinking', label: 'High Thinking', icon: Brain, desc: 'Pro Preview deep reasoning' },
-    { id: 'fast', label: 'Flash Lite', icon: Zap, desc: 'Ultra low-latency responses' },
+    { id: 'thinking', label: 'High Thinking', icon: Brain, desc: 'Groq deep reasoning' },
+    { id: 'fast', label: 'Groq Fast', icon: Zap, desc: 'Ultra low-latency responses' },
     { id: 'research', label: 'Web Research', icon: Globe, desc: 'Google Search grounding' },
     { id: 'task', label: 'Do Task', icon: CheckSquare, desc: 'Autonomous execution' },
   ];
@@ -97,9 +97,9 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <p className="text-xs text-stone-500 flex items-center gap-1.5">
-              <span>Low-Latency (Flash-Lite)</span>
+              <span>Low-Latency (Groq)</span>
               <span>•</span>
-              <span>High Thinking (Pro-Preview)</span>
+              <span>High Thinking (Groq)</span>
               <span>•</span>
               <span>Live Search</span>
             </p>

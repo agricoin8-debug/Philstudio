@@ -77,7 +77,7 @@ async function scrapeCreators(pathname: string, method: 'GET' | 'POST', body?: u
   return payload;
 }
 
-async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, options: { temperature?: number } = {}) {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -87,7 +87,7 @@ async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant
     body: JSON.stringify({
       model: 'openai/gpt-oss-120b',
       messages,
-      temperature: 0.7,
+      temperature: typeof options.temperature === 'number' ? options.temperature : 0.7,
       stream: true,
     }),
     signal: AbortSignal.timeout(60000),
@@ -98,6 +98,48 @@ async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant
     throw new Error(`Groq request failed (${response.status}): ${detail.slice(0, 240)}`);
   }
   return response.body;
+}
+
+async function streamGroqToSse(
+  body: ReadableStream<Uint8Array>,
+  sendEvent: (data: unknown) => void,
+  mode: string,
+  powerSettings: Record<string, unknown>,
+) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  sendEvent({
+    type: 'meta',
+    modelUsed: 'openai/gpt-oss-120b (Groq)',
+    modeUsed: mode,
+    thinkingLevel: 'OFF',
+    searchEnabled: false,
+    unrestricted: mode === 'ultra' || Boolean(powerSettings.unrestrictedDepth),
+  });
+
+  const consume = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data: ') || trimmed === 'data: [DONE]') return;
+    try {
+      const payload = JSON.parse(trimmed.slice(6));
+      const text = payload.choices?.[0]?.delta?.content;
+      if (text) sendEvent({ type: 'chunk', text });
+    } catch {
+      // Incomplete SSE frames remain in the next buffer.
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    lines.forEach(consume);
+  }
+  buffer += decoder.decode();
+  buffer.split('\n').forEach(consume);
 }
 
 // Scrape Creators server-side proxy. API keys never leave the server.
@@ -117,12 +159,16 @@ app.all('/api/scrapecreators', async (req, res) => {
 // Health & Status Endpoint
 app.get('/api/health', (req, res) => {
   res.json({
-    status: 'ok',
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    status: process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY ? 'ok' : 'degraded',
+    providers: {
+      groq: Boolean(process.env.GROQ_API_KEY),
+      gemini: Boolean(process.env.GEMINI_API_KEY),
+      scrapeCreators: Boolean(process.env.SCRAPECREATORS_API_KEY),
+    },
+    activeProvider: process.env.GROQ_API_KEY ? 'groq' : process.env.GEMINI_API_KEY ? 'gemini' : null,
     models: {
-      lowLatency: 'gemini-3.1-flash-lite',
-      highThinking: 'gemini-3.1-pro-preview',
-      general: 'gemini-3.8-flash',
+      groq: 'openai/gpt-oss-120b',
+      geminiFallback: 'gemini-3.1-flash-lite',
     },
   });
 });
@@ -350,8 +396,32 @@ app.post('/api/agent/stream', async (req, res) => {
       return res.end();
     }
 
-    const ai = getGeminiClient();
     const startTime = Date.now();
+
+    if (process.env.GROQ_API_KEY) {
+      const groqSystemInstruction = [
+        'You are an autonomous AI agent. Answer clearly, accurately, and helpfully.',
+        'Be thorough for complex requests, but never claim actions or live research you did not perform.',
+        mode === 'fast' ? 'Prioritize a concise, direct response.' : '',
+        mode === 'thinking' || mode === 'ultra' ? 'Provide structured reasoning, tradeoffs, and a decisive recommendation.' : '',
+        enableWebSearch ? 'Live web search is unavailable in this Groq route; clearly label information that may need verification.' : '',
+        typeof powerSettings.customSystemPrompt === 'string' ? powerSettings.customSystemPrompt : '',
+        Array.isArray(memories) && memories.length > 0 ? `Relevant memory:\n${memories.filter((memory: any) => memory.enabled !== false).map((memory: any) => `- ${memory.key}: ${memory.value}`).join('\n')}` : '',
+        Array.isArray(skills) && skills.length > 0 ? `Enabled skills:\n${skills.filter((skill: any) => skill.enabled !== false).map((skill: any) => `- ${skill.name}: ${skill.description}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n');
+      const groqMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: groqSystemInstruction },
+        ...(Array.isArray(history) ? history.slice(-Math.max(1, Number(powerSettings.historyLimit) || 40)).filter((item: any) => item && typeof item.content === 'string').map((item: any) => ({ role: item.role === 'assistant' ? 'assistant' as const : 'user' as const, content: item.content })) : []),
+        { role: 'user', content: message },
+      ];
+      const groqBody = await streamGroq(groqMessages, { temperature: typeof powerSettings.temperature === 'number' ? powerSettings.temperature : 0.7 });
+      await streamGroqToSse(groqBody, sendEvent, mode, powerSettings);
+      sendEvent({ type: 'done', latencyMs: Date.now() - startTime, groundingSources: [] });
+      res.write('data: [DONE]\\n\\n');
+      return res.end();
+    }
+
+    const ai = getGeminiClient();
 
     // Determine target model and thinking configuration based on requested mode:
     // 'fast': gemini-3.1-flash-lite (ultra low latency)
@@ -594,7 +664,7 @@ CORE CAPABILITIES & DIRECTIVES:
       type: 'error',
       error: error.message || 'Error communicating with agent',
     });
-    res.write('data: [DONE]\\n\\n');
+    res.write('data: [DONE]\n\n');
     res.end();
   }
 });
@@ -615,7 +685,7 @@ app.post('/api/agent/channel/webhook', async (req, res) => {
       return res.status(400).json({ error: 'Message payload is required' });
     }
 
-    const ai = getGeminiClient();
+    const ai = process.env.GROQ_API_KEY ? null : getGeminiClient();
 
     let platformFormattingGuide = '';
     if (platform === 'discord') {
@@ -650,15 +720,40 @@ Answer autonomously, authoritatively, and with production-grade engineering accu
       }
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: message,
-      config: {
-        systemInstruction,
-      },
-    });
-
-    const responseText = response.text || 'Message processed by OpenClaw Autonomous Gateway.';
+    let responseText = '';
+    if (process.env.GROQ_API_KEY) {
+      const body = await streamGroq([
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: message },
+      ]);
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            responseText += payload.choices?.[0]?.delta?.content || '';
+          } catch {
+            // Ignore incomplete SSE frames.
+          }
+        }
+      }
+    } else {
+      const response = await ai!.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: message,
+        config: { systemInstruction },
+      });
+      responseText = response.text || '';
+    }
+    responseText ||= 'Message processed by OpenClaw Autonomous Gateway.';
 
     res.json({
       success: true,

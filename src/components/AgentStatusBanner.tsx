@@ -58,7 +58,7 @@ export const AgentStatusBanner: React.FC<AgentStatusBannerProps> = ({ currentMod
               <Brain className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-stone-900 block">High Thinking</span>
-                <span className="text-[11px] text-stone-500">gemini-3.1-pro-preview reasoning layer</span>
+                <span className="text-[11px] text-stone-500">Groq GPT-OSS reasoning layer</span>
               </div>
             </div>
 
@@ -66,7 +66,7 @@ export const AgentStatusBanner: React.FC<AgentStatusBannerProps> = ({ currentMod
               <Zap className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-stone-900 block">Low-Latency</span>
-                <span className="text-[11px] text-stone-500">gemini-3.1-flash-lite for instant answers</span>
+                <span className="text-[11px] text-stone-500">Groq GPT-OSS for instant answers</span>
               </div>
             </div>
 
