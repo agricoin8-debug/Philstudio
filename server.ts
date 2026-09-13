@@ -1,5 +1,10 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
+
+dotenv.config({ path: '/vercel/share/.env.project' });
+dotenv.config({ path: '.env.development.local' });
+dotenv.config();
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
@@ -80,7 +85,7 @@ async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages,
       temperature: 0.7,
       stream: true,
@@ -521,10 +526,26 @@ CORE CAPABILITIES & DIRECTIVES:
     console.error('Agent stream error:', error);
 
     // Gemini model retirement/errors should not break the chat when Groq is configured.
-    if (process.env.GROQ_API_KEY) {
-      try {
+    try {
+      if (!process.env.GROQ_API_KEY) {
+        throw new Error('GROQ_API_KEY environment variable is missing.');
+      }
+        const groqSystemInstruction = [
+          'You are an autonomous AI agent. Answer clearly, accurately, and helpfully.',
+          'Be thorough when the request is complex, but do not claim to have performed actions or live research you did not perform.',
+          req.body.mode === 'fast' ? 'Prioritize a concise, direct response.' : '',
+          req.body.mode === 'thinking' || req.body.mode === 'ultra' ? 'Provide structured reasoning, tradeoffs, and a decisive recommendation.' : '',
+          req.body.enableWebSearch ? 'The web search provider is unavailable in this fallback; clearly label information that may need verification.' : '',
+          req.body.powerSettings?.customSystemPrompt || '',
+          Array.isArray(req.body.memories) && req.body.memories.length > 0
+            ? `Relevant memory:\n${req.body.memories.filter((memory: any) => memory.enabled !== false).map((memory: any) => `- ${memory.key}: ${memory.value}`).join('\n')}`
+            : '',
+          Array.isArray(req.body.skills) && req.body.skills.length > 0
+            ? `Enabled skills:\n${req.body.skills.filter((skill: any) => skill.enabled !== false).map((skill: any) => `- ${skill.name}: ${skill.description}`).join('\n')}`
+            : '',
+        ].filter(Boolean).join('\n\n');
         const groqMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-          { role: 'system', content: 'You are an autonomous AI agent. Answer clearly, accurately, and helpfully.' },
+          { role: 'system', content: groqSystemInstruction },
           ...(Array.isArray(req.body.history) ? req.body.history.slice(-40).map((item: any) => ({
             role: item.role === 'assistant' ? 'assistant' : 'user',
             content: typeof item.content === 'string' ? item.content : '',
@@ -537,7 +558,7 @@ CORE CAPABILITIES & DIRECTIVES:
         let buffer = '';
         sendEvent({
           type: 'meta',
-          modelUsed: 'llama-3.3-70b-versatile (Groq fallback)',
+          modelUsed: 'openai/gpt-oss-120b (Groq fallback)',
           modeUsed: req.body.mode || 'auto',
           thinkingLevel: 'OFF',
           searchEnabled: false,
@@ -548,7 +569,7 @@ CORE CAPABILITIES & DIRECTIVES:
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\\n');
+          const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           for (const line of lines) {
             if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
@@ -568,7 +589,6 @@ CORE CAPABILITIES & DIRECTIVES:
       } catch (fallbackError: any) {
         console.error('Groq fallback error:', fallbackError);
       }
-    }
 
     sendEvent({
       type: 'error',
