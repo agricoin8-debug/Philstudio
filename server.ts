@@ -34,6 +34,44 @@ function getGroqKey(): string {
   return apiKey;
 }
 
+function getScrapeCreatorsKey(): string {
+  const apiKey = process.env.SCRAPECREATORS_API_KEY;
+  if (!apiKey) throw new Error('SCRAPECREATORS_API_KEY environment variable is missing.');
+  return apiKey;
+}
+
+const SCRAPE_CREATORS_BASE_URL = 'https://api.scrapecreators.com';
+const SCRAPE_PATH_PATTERN = /^\/[a-z0-9][a-z0-9/_-]*$/i;
+
+async function scrapeCreators(pathname: string, method: 'GET' | 'POST', body?: unknown) {
+  if (!SCRAPE_PATH_PATTERN.test(pathname) || pathname.includes('..')) {
+    throw new Error('Invalid Scrape Creators endpoint path.');
+  }
+
+  const response = await fetch(`${SCRAPE_CREATORS_BASE_URL}${pathname}`, {
+    method,
+    headers: {
+      'x-api-key': getScrapeCreatorsKey(),
+      Accept: 'application/json',
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(method === 'POST' ? { body: JSON.stringify(body ?? {}) } : {}),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  const text = await response.text();
+  let payload: unknown = text;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    // Preserve non-JSON upstream responses for diagnostics.
+  }
+  if (!response.ok) {
+    throw new Error(`Scrape Creators request failed (${response.status}).`);
+  }
+  return payload;
+}
+
 async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -56,6 +94,20 @@ async function streamGroq(messages: Array<{ role: 'system' | 'user' | 'assistant
   }
   return response.body;
 }
+
+// Scrape Creators server-side proxy. API keys never leave the server.
+app.all('/api/scrapecreators', async (req, res) => {
+  try {
+    const endpoint = typeof req.query.endpoint === 'string' ? req.query.endpoint : '';
+    const method = req.method === 'POST' ? 'POST' : 'GET';
+    const result = await scrapeCreators(endpoint, method, method === 'POST' ? req.body : undefined);
+    res.json({ data: result });
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : 'Scrape Creators request failed.';
+    const status = message.includes('missing') ? 503 : message.includes('Invalid') ? 400 : 502;
+    res.status(status).json({ error: message });
+  }
+});
 
 // Health & Status Endpoint
 app.get('/api/health', (req, res) => {
